@@ -1,0 +1,14 @@
+# Mengabaikan node_modules di semua folder
+node_modules/
+dist/
+build/
+
+# Mengabaikan file env (jangan pernah upload credential DB!)
+.env
+.env.local
+
+# File log dan system
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
