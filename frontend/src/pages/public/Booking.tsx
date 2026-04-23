@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
-  Calendar, Clock, MapPin, ShieldCheck, AlertCircle, ChevronRight
+  Calendar, Clock, ShieldCheck, AlertCircle, ChevronRight, Activity, Grid
 } from 'lucide-react';
 import { TimeSlot } from '../../components/booking/TimeSlot';
 import { BookingSummary } from '../../components/booking/BookingSummary';
@@ -13,28 +13,45 @@ import { useToast } from '../../components/ui/Toast';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000/api/v1';
 
-interface Court {
-  id: number;
-  name: string;
-  type: string;
-  price_per_hour: number;
-}
-
 interface TimeSlotData {
   time: string;
   isBooked: boolean;
 }
+
+const sportsData = [
+  {
+    sport: 'Futsal',
+    zones: [
+      { name: 'Zona A', courts: [{ id: 1, name: 'Futsal A (Vinyl)', price_per_hour: 120000 }] },
+      { name: 'Zona B', courts: [{ id: 2, name: 'Futsal B (Sintetis)', price_per_hour: 100000 }] }
+    ]
+  },
+  {
+    sport: 'Badminton',
+    zones: [
+      { name: 'Zona A', courts: [{ id: 3, name: 'A1', price_per_hour: 40000 }, { id: 4, name: 'A2', price_per_hour: 40000 }] },
+      { name: 'Zona B', courts: [{ id: 5, name: 'B1', price_per_hour: 40000 }, { id: 6, name: 'B2', price_per_hour: 40000 }, { id: 7, name: 'B3', price_per_hour: 40000 }] }
+    ]
+  },
+  {
+    sport: 'Basket',
+    zones: [
+      { name: 'Tanpa Zona', courts: [{ id: 8, name: 'Basket Full Court', price_per_hour: 150000 }] }
+    ]
+  }
+];
 
 const Booking: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // State Management
+  // Hierarchy State Machine
+  const [selectedSport, setSelectedSport] = useState<string | null>(null);
+  const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [duration, setDuration] = useState<number>(1);
+  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   
   // Input CS Manual
   const [customerName, setCustomerName] = useState<string>('');
@@ -45,13 +62,34 @@ const Booking: React.FC = () => {
   const [bookingStatus, setBookingStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
-  // Mock Courts (Will fetch from API eventually)
-  const courts: Court[] = [
-    { id: 1, name: 'Futsal A (Vinyl)', type: 'Futsal', price_per_hour: 120000 },
-    { id: 2, name: 'Futsal B (Sintetis)', type: 'Futsal', price_per_hour: 100000 },
-    { id: 3, name: 'Badminton Pro', type: 'Badminton', price_per_hour: 60000 },
-    { id: 4, name: 'Basket Full Court', type: 'Basket', price_per_hour: 150000 },
-  ];
+  const refreshTrigger = useMemo(() => Date.now(), [bookingStatus]);
+
+  // Handle Sport Selection
+  const handleSportSelect = (sport: string) => {
+    setSelectedSport(sport);
+    setSelectedZone(null);
+    setSelectedCourt(null);
+    setSelectedSlots([]);
+    
+    // Auto-select zone if it's Basket or only 1 zone available
+    const sportObj = sportsData.find(s => s.sport === sport);
+    if (sportObj && sportObj.zones.length === 1 && sportObj.zones[0].name === 'Tanpa Zona') {
+      setSelectedZone('Tanpa Zona');
+    }
+  };
+
+  // Handle Zone Selection
+  const handleZoneSelect = (zone: string) => {
+    setSelectedZone(zone);
+    setSelectedCourt(null);
+    setSelectedSlots([]);
+  };
+
+  // Handle Court Selection
+  const handleCourtSelect = (courtId: number) => {
+    setSelectedCourt(courtId);
+    setSelectedSlots([]);
+  };
 
   // Auto-select from URL
   useEffect(() => {
@@ -59,7 +97,17 @@ const Booking: React.FC = () => {
     const courtIdParam = searchParams.get('court_id');
     const dateParam = searchParams.get('date');
     if (courtIdParam && !isNaN(Number(courtIdParam))) {
-      setSelectedCourt(Number(courtIdParam));
+      const courtId = Number(courtIdParam);
+      sportsData.forEach(s => {
+        s.zones.forEach(z => {
+          const c = z.courts.find(c => c.id === courtId);
+          if (c) {
+            setSelectedSport(s.sport);
+            setSelectedZone(z.name);
+            setSelectedCourt(courtId);
+          }
+        });
+      });
     }
     if (dateParam) {
       setSelectedDate(dateParam);
@@ -71,7 +119,7 @@ const Booking: React.FC = () => {
     const fetchAvailability = async () => {
       if (!selectedCourt || !selectedDate) return;
       
-      setSelectedTime(null);
+      setSelectedSlots([]);
       setIsLoadingSlots(true);
       setErrorMessage('');
 
@@ -93,19 +141,77 @@ const Booking: React.FC = () => {
     };
 
     fetchAvailability();
-  }, [selectedCourt, selectedDate]);
+  }, [selectedCourt, selectedDate, refreshTrigger]);
 
-  // Kalkulasi Harga
-  const currentCourtParams = useMemo(() => courts.find(c => c.id === selectedCourt), [selectedCourt, courts]);
+  // Kalkulasi Harga & Payload
+  const currentCourtParams = useMemo(() => {
+    if (!selectedSport || !selectedZone || !selectedCourt) return null;
+    const sport = sportsData.find(s => s.sport === selectedSport);
+    if (!sport) return null;
+    const zone = sport.zones.find(z => z.name === selectedZone);
+    if (!zone) return null;
+    return zone.courts.find(c => c.id === selectedCourt) || null;
+  }, [selectedSport, selectedZone, selectedCourt]);
+
+  const duration = selectedSlots.length;
   const totalPrice = currentCourtParams ? currentCourtParams.price_per_hour * duration : 0;
+  
+  // Sort selected slots chronologically to get start time
+  const sortedSelectedSlots = useMemo(() => {
+    return [...selectedSlots].sort((a, b) => parseInt(a.split(':')[0]) - parseInt(b.split(':')[0]));
+  }, [selectedSlots]);
+  
+  const startTime = sortedSelectedSlots.length > 0 ? sortedSelectedSlots[0] : null;
 
   const formatRupiah = (price: number) => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(price);
   };
 
+  // Smart Disable Logic for Past Time
+  const isPastTime = (time: string) => {
+    if (selectedDate !== new Date().toISOString().split('T')[0]) return false;
+    const hour = parseInt(time.split(':')[0], 10);
+    return hour <= new Date().getHours();
+  };
+
+  // Smart Multi-Slot Selection Logic
+  const handleSlotClick = (time: string) => {
+    const isBooked = timeSlots.find(s => s.time === time)?.isBooked || isPastTime(time);
+    if (isBooked) return;
+
+    if (selectedSlots.length === 0) {
+      setSelectedSlots([time]);
+      return;
+    }
+
+    const clickedHour = parseInt(time.split(':')[0], 10);
+    const selectedHours = selectedSlots.map(s => parseInt(s.split(':')[0], 10)).sort((a, b) => a - b);
+    
+    // If clicking an already selected slot
+    if (selectedSlots.includes(time)) {
+      if (clickedHour === selectedHours[0] || clickedHour === selectedHours[selectedHours.length - 1]) {
+        // If it's at the edge, remove it
+        setSelectedSlots(selectedSlots.filter(s => s !== time));
+      } else {
+        // If it's in the middle, reset selection
+        setSelectedSlots([time]);
+      }
+      return;
+    }
+
+    const minHour = selectedHours[0];
+    const maxHour = selectedHours[selectedHours.length - 1];
+
+    if (clickedHour === minHour - 1 || clickedHour === maxHour + 1) {
+      setSelectedSlots([...selectedSlots, time]);
+    } else {
+      setSelectedSlots([time]); // Reset if not consecutive
+    }
+  };
+
   // Submit Booking
   const handleBookingSubmit = async () => {
-    if (!selectedCourt || !selectedDate || !selectedTime) return;
+    if (!selectedCourt || !selectedDate || selectedSlots.length === 0) return;
     if (bookingStatus === 'submitting') return; // Double click guard
     
     setBookingStatus('submitting');
@@ -118,7 +224,7 @@ const Booking: React.FC = () => {
         body: JSON.stringify({
           court_id: selectedCourt,
           date: selectedDate,
-          start_time: selectedTime,
+          start_time: startTime, // The first slot
           duration: duration,
           customer_name: customerName || 'Tamu Web',
           phone: customerPhone || '-'
@@ -134,7 +240,7 @@ const Booking: React.FC = () => {
       } else {
         if (response.status === 409) {
            toast('Slot sudah terisi, silakan pilih jam lain', 'warning');
-           setSelectedTime(null);
+           setSelectedSlots([]);
         } else {
            toast(result.message || 'Gagal melakukan booking', 'error');
         }
@@ -144,21 +250,16 @@ const Booking: React.FC = () => {
       setBookingStatus('error');
       setErrorMessage(error.message);
       if (error.message.includes('available') || error.message.includes('terisi')) {
-         // Trigger refresh effect by re-setting the state minimally to trigger the useEffect
-         setSelectedDate(prev => prev); // This does not actually trigger a refresh if the value is the same.
-         // Let's manually trigger a fetch by clearing and setting time slots, or changing state slightly
-         setSelectedTime(null);
-         // To properly refresh, we should call fetchAvailability again, but it's bound in useEffect. 
-         // A common trick is to have a refresh trigger state:
+         setSelectedSlots([]);
       }
     }
   };
 
   const steps = [
-    { label: 'Pilih Lapangan', isActive: true, isDone: !!selectedCourt },
-    { label: 'Tentukan Waktu', isActive: !!selectedCourt, isDone: !!(selectedCourt && selectedDate && duration) },
-    { label: 'Pilih Jadwal', isActive: !!(selectedCourt && selectedDate), isDone: !!selectedTime },
-    { label: 'Konfirmasi', isActive: !!selectedTime, isDone: false }
+    { label: 'Pilih Olahraga', isActive: true, isDone: !!selectedSport },
+    { label: 'Pilih Lapangan', isActive: !!selectedSport, isDone: !!selectedCourt },
+    { label: 'Pilih Jadwal', isActive: !!selectedCourt, isDone: selectedSlots.length > 0 },
+    { label: 'Konfirmasi', isActive: selectedSlots.length > 0, isDone: false }
   ];
 
   if (bookingStatus === 'success') {
@@ -171,7 +272,7 @@ const Booking: React.FC = () => {
           </div>
           <h2 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">Booking Berhasil!</h2>
           <p className="text-slate-600 mb-8 leading-relaxed font-medium">
-            Permintaan booking Anda untuk <strong className="text-slate-900">{currentCourtParams?.name}</strong> pada <strong className="text-slate-900">{selectedDate}</strong> jam <strong className="text-slate-900">{selectedTime}</strong> telah diamankan.
+            Permintaan booking Anda untuk <strong className="text-slate-900">{currentCourtParams?.name}</strong> pada <strong className="text-slate-900">{selectedDate}</strong> jam <strong className="text-slate-900">{startTime}</strong> selama <strong className="text-slate-900">{duration} Jam</strong> telah diamankan.
           </p>
           <div className="bg-slate-50 p-5 rounded-2xl mb-8 border border-slate-200/60 text-left">
             <p className="text-sm font-semibold text-slate-500 mb-1 uppercase tracking-wide">Total Pembayaran</p>
@@ -181,7 +282,7 @@ const Booking: React.FC = () => {
             <Button 
               onClick={() => {
                 setBookingStatus('idle');
-                setSelectedTime(null);
+                setSelectedSlots([]);
               }}
               variant="secondary"
               fullWidth
@@ -200,6 +301,38 @@ const Booking: React.FC = () => {
       </div>
     );
   }
+
+  // Time Slot Grouping
+  const pagiSlots = timeSlots.filter(s => parseInt(s.time.split(':')[0]) < 12);
+  const siangSlots = timeSlots.filter(s => parseInt(s.time.split(':')[0]) >= 12 && parseInt(s.time.split(':')[0]) < 18);
+  const malamSlots = timeSlots.filter(s => parseInt(s.time.split(':')[0]) >= 18);
+
+  const renderSlotGroup = (title: string, slots: TimeSlotData[]) => {
+    if (slots.length === 0) return null;
+    return (
+      <div className="mb-6">
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">{title}</h3>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3.5">
+          {slots.map((slot, idx) => {
+            const isPopularHour = slot.time === '18:00' || slot.time === '19:00' || slot.time === '20:00' || slot.time === '21:00';
+            const disabled = slot.isBooked || isPastTime(slot.time);
+            return (
+              <TimeSlot
+                key={idx}
+                time={slot.time}
+                isBooked={disabled}
+                isSelected={selectedSlots.includes(slot.time)}
+                isPopularHour={isPopularHour}
+                onSelect={handleSlotClick}
+              />
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const currentSportObj = sportsData.find(s => s.sport === selectedSport);
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 font-sans text-slate-900 pb-24">
@@ -238,94 +371,122 @@ const Booking: React.FC = () => {
           
           <div className="xl:col-span-2 space-y-8">
             
+            {/* 1. Sport Selection */}
             <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md">
               <div className="flex items-center gap-3 mb-6">
-                <div className="p-2.5 bg-green-50 text-green-600 rounded-xl">
-                  <MapPin size={24} />
+                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+                  <Activity size={24} />
                 </div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Lapangan</h2>
+                <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Olahraga</h2>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {courts.map((court) => (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {sportsData.map((sport) => (
                   <button
-                    key={court.id}
-                    onClick={() => setSelectedCourt(court.id)}
+                    key={sport.sport}
+                    onClick={() => handleSportSelect(sport.sport)}
                     className={`
-                      group text-left p-5 rounded-2xl border-2 transition-all duration-200 ease-out
-                      ${selectedCourt === court.id 
-                        ? 'border-green-500 bg-green-50 shadow-md ring-4 ring-green-500/10 scale-[1.02] z-10 relative' 
-                        : 'border-slate-200 hover:border-green-400 hover:bg-slate-50 hover:shadow-sm'}
+                      group text-center py-4 px-5 rounded-2xl border-2 transition-all duration-200 ease-out
+                      ${selectedSport === sport.sport 
+                        ? 'border-blue-500 bg-blue-50 shadow-md ring-4 ring-blue-500/10 scale-[1.02] z-10 relative' 
+                        : 'border-slate-200 hover:border-blue-400 hover:bg-slate-50 hover:shadow-sm'}
                     `}
                   >
-                    <div className="flex justify-between items-start mb-3">
-                      <span className="font-bold text-slate-900 text-lg group-hover:text-green-700 transition-colors">{court.name}</span>
-                      <span className={`text-xs font-bold px-2.5 py-1 rounded-md uppercase tracking-wider ${selectedCourt === court.id ? 'bg-green-200 text-green-800' : 'bg-slate-100 text-slate-500'}`}>{court.type}</span>
-                    </div>
-                    <p className={`font-extrabold text-lg ${selectedCourt === court.id ? 'text-green-700' : 'text-green-600'}`}>{formatRupiah(court.price_per_hour)} <span className="text-sm font-medium opacity-70">/ jam</span></p>
+                    <span className={`font-bold text-lg ${selectedSport === sport.sport ? 'text-blue-700' : 'text-slate-700 group-hover:text-blue-600'}`}>{sport.sport}</span>
                   </button>
                 ))}
               </div>
             </Card>
 
-            <Card className={`border-slate-200 shadow-sm transition-all duration-500 ${!selectedCourt ? 'opacity-50 grayscale pointer-events-none' : 'opacity-100'}`}>
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
-                  <Calendar size={24} />
+            {/* 2. Zone & Court Selection */}
+            {selectedSport && (
+              <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md animate-in slide-in-from-bottom-4">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2.5 bg-green-50 text-green-600 rounded-xl">
+                    <Grid size={24} />
+                  </div>
+                  <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Zona & Lapangan</h2>
                 </div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-900">Tentukan Waktu & Durasi</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                {/* Zone Tabs (Hidden if Tanpa Zona) */}
+                {currentSportObj && !(currentSportObj.zones.length === 1 && currentSportObj.zones[0].name === 'Tanpa Zona') && (
+                  <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200/60 shadow-inner mb-6">
+                    {currentSportObj.zones.map((zone) => (
+                      <button
+                        key={zone.name}
+                        onClick={() => handleZoneSelect(zone.name)}
+                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-200 ease-out ${
+                          selectedZone === zone.name 
+                            ? 'bg-white shadow-sm border-slate-200 text-green-600 scale-[1.02]' 
+                            : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'
+                        }`}
+                      >
+                        {zone.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Court Selection */}
+                {selectedZone && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
+                    {currentSportObj?.zones.find(z => z.name === selectedZone)?.courts.map((court) => (
+                      <button
+                        key={court.id}
+                        onClick={() => handleCourtSelect(court.id)}
+                        className={`
+                          group text-left p-5 rounded-2xl border-2 transition-all duration-200 ease-out
+                          ${selectedCourt === court.id 
+                            ? 'border-green-500 bg-green-50 shadow-md ring-4 ring-green-500/10 scale-[1.02] z-10 relative' 
+                            : 'border-slate-200 hover:border-green-400 hover:bg-slate-50 hover:shadow-sm'}
+                        `}
+                      >
+                        <div className="flex justify-between items-start mb-3">
+                          <span className="font-bold text-slate-900 text-lg group-hover:text-green-700 transition-colors">{court.name}</span>
+                        </div>
+                        <p className={`font-extrabold text-lg ${selectedCourt === court.id ? 'text-green-700' : 'text-green-600'}`}>{formatRupiah(court.price_per_hour)} <span className="text-sm font-medium opacity-70">/ jam</span></p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            )}
+
+            {/* 3. Date Selection */}
+            {selectedCourt && (
+              <Card className="border-slate-200 shadow-sm transition-all duration-500 animate-in slide-in-from-bottom-4">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
+                    <Calendar size={24} />
+                  </div>
+                  <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Tanggal</h2>
+                </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wide">Pilih Tanggal</label>
                   <Input 
                     type="date" 
                     value={selectedDate}
                     min={new Date().toISOString().split('T')[0]}
                     onChange={(e) => setSelectedDate(e.target.value)}
-                    className="h-12 shadow-sm font-medium text-slate-900 border-slate-300"
+                    className="h-12 shadow-sm font-medium text-slate-900 border-slate-300 max-w-sm"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wide">Durasi Main</label>
-                  <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200/60 shadow-inner">
-                    {[1, 2, 3].map((hours) => (
-                      <button
-                        key={hours}
-                        onClick={() => setDuration(hours)}
-                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-200 ease-out ${
-                          duration === hours 
-                            ? 'bg-white shadow-sm border-slate-200 text-indigo-600 scale-[1.02]' 
-                            : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'
-                        }`}
-                      >
-                        {hours} Jam
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </Card>
+              </Card>
+            )}
 
-            <Card className={`relative min-h-[300px] border-slate-200 shadow-sm transition-all duration-500 ${!selectedDate || !selectedCourt ? 'opacity-50 grayscale pointer-events-none' : 'opacity-100'}`}>
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl">
-                  <Clock size={24} />
+            {/* 4. Time Slot Selection */}
+            <Card className={`relative min-h-[300px] border-slate-200 shadow-sm transition-all duration-500 ${!selectedDate || !selectedCourt ? 'hidden' : 'opacity-100 animate-in slide-in-from-bottom-4'}`}>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl">
+                    <Clock size={24} />
+                  </div>
+                  <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Jam Mulai (Bisa pilih &gt; 1 slot)</h2>
                 </div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Jam Mulai</h2>
               </div>
               
-              {!selectedCourt ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 z-10 backdrop-blur-sm rounded-3xl animate-in fade-in">
-                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                    <MapPin className="text-slate-400 w-8 h-8" />
-                  </div>
-                  <p className="text-slate-500 font-semibold text-lg">Silakan pilih lapangan terlebih dahulu</p>
-                </div>
-              ) : isLoadingSlots ? (
+              {isLoadingSlots ? (
                 <div className="absolute inset-0 bg-white/95 z-10 rounded-3xl p-6 md:p-8 animate-in fade-in">
                   <div className="flex gap-4 mb-8 mt-4">
                     <div className="h-5 w-24 bg-slate-200 animate-pulse rounded-md"></div>
-                    <div className="h-5 w-28 bg-slate-200 animate-pulse rounded-md"></div>
                   </div>
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
                     {[...Array(15)].map((_, i) => (
@@ -338,8 +499,8 @@ const Booking: React.FC = () => {
                   <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mb-5 border border-red-100 shadow-sm">
                     <Calendar className="text-red-400 w-10 h-10" />
                   </div>
-                  <h3 className="text-xl font-black text-slate-900 mb-2">Jadwal Hari Ini Penuh</h3>
-                  <p className="text-slate-500 mb-8 max-w-md font-medium">Wah, semua slot waktu pada tanggal ini telah dibooking. Jangan khawatir, coba cek ketersediaan di tanggal lain.</p>
+                  <h3 className="text-xl font-black text-slate-900 mb-2">Jadwal Hari Ini Penuh / Berlalu</h3>
+                  <p className="text-slate-500 mb-8 max-w-md font-medium">Wah, semua slot waktu pada tanggal ini telah dibooking atau berlalu. Coba cek ketersediaan di tanggal lain.</p>
                   <Button variant="primary" size="lg" onClick={() => document.querySelector<HTMLInputElement>('input[type="date"]')?.focus()} className="shadow-lg shadow-green-500/20">
                     Pilih Tanggal Lain
                   </Button>
@@ -348,25 +509,13 @@ const Booking: React.FC = () => {
                 <>
                   <div className="flex flex-wrap items-center gap-5 mb-8 mt-4 px-2">
                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-600"><span className="w-3.5 h-3.5 bg-white border-2 border-slate-300 rounded-full inline-block"></span> Tersedia</div>
-                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-600"><span className="w-3.5 h-3.5 bg-slate-100 border-2 border-slate-300 rounded-full inline-block"></span> Dibooking</div>
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-600"><span className="w-3.5 h-3.5 bg-slate-100 border-2 border-slate-300 rounded-full inline-block"></span> Dibooking / Lewat</div>
                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-600"><span className="w-3.5 h-3.5 bg-gradient-to-tr from-orange-400 to-yellow-400 border-2 border-white shadow-sm rounded-full inline-block relative"><span className="absolute inset-0 rounded-full bg-orange-400 animate-ping opacity-50"></span></span> Jam Ramai</div>
                   </div>
 
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3.5">
-                    {timeSlots.map((slot, idx) => {
-                      const isPopularHour = slot.time === '19:00' || slot.time === '20:00' || slot.time === '21:00';
-                      return (
-                        <TimeSlot
-                          key={idx}
-                          time={slot.time}
-                          isBooked={slot.isBooked}
-                          isSelected={selectedTime === slot.time}
-                          isPopularHour={isPopularHour}
-                          onSelect={setSelectedTime}
-                        />
-                      );
-                    })}
-                  </div>
+                  {renderSlotGroup("🌅 Pagi", pagiSlots)}
+                  {renderSlotGroup("☀️ Siang", siangSlots)}
+                  {renderSlotGroup("🌙 Malam", malamSlots)}
                 </>
               )}
             </Card>
@@ -377,7 +526,7 @@ const Booking: React.FC = () => {
             <BookingSummary
               courtName={currentCourtParams?.name}
               date={selectedDate}
-              time={selectedTime}
+              time={startTime}
               duration={duration}
               totalPrice={totalPrice}
               formatRupiah={formatRupiah}
@@ -387,7 +536,7 @@ const Booking: React.FC = () => {
               setCustomerPhone={setCustomerPhone}
               onSubmit={handleBookingSubmit}
               isSubmitting={bookingStatus === 'submitting'}
-              isValid={!!selectedCourt && !!selectedDate && !!selectedTime}
+              isValid={!!selectedCourt && !!selectedDate && selectedSlots.length > 0}
             />
           </div>
 

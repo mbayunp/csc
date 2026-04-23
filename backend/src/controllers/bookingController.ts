@@ -98,9 +98,9 @@ export const getAvailability = async (req: Request, res: Response) => {
       }
     });
 
-    // Generate slots from 08:00 to 22:00
+    // Generate slots from 07:00 to 21:00
     const slots = [];
-    for (let i = 8; i <= 22; i++) {
+    for (let i = 7; i <= 21; i++) {
       slots.push(`${i.toString().padStart(2, '0')}:00`);
     }
 
