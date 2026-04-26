@@ -8,31 +8,30 @@ export const getDailyRevenue = async (req: Request, res: Response) => {
 
     const dateFilter: any = {};
     if (start_date && end_date) {
-      dateFilter.approved_at = {
-        [Op.between]: [new Date(`${start_date}T00:00:00Z`), new Date(`${end_date}T23:59:59Z`)]
+      dateFilter.date = {
+        [Op.between]: [start_date, end_date]
       };
     } else if (start_date) {
-      dateFilter.approved_at = {
-        [Op.gte]: new Date(`${start_date}T00:00:00Z`)
+      dateFilter.date = {
+        [Op.gte]: start_date
       };
     } else if (end_date) {
-      dateFilter.approved_at = {
-        [Op.lte]: new Date(`${end_date}T23:59:59Z`)
+      dateFilter.date = {
+        [Op.lte]: end_date
       };
     }
 
-    // Use sequelize.fn('DATE') to extract just the date portion from approved_at
     const dailyRevenue = await Booking.findAll({
       attributes: [
-        [sequelize.fn('DATE', sequelize.col('approved_at')), 'date'],
+        'date',
         [sequelize.fn('SUM', sequelize.col('total_price')), 'total_revenue']
       ],
       where: {
         status: 'approved',
         ...dateFilter
       },
-      group: [sequelize.fn('DATE', sequelize.col('approved_at'))],
-      order: [[sequelize.fn('DATE', sequelize.col('approved_at')), 'DESC']]
+      group: ['date'],
+      order: [['date', 'ASC']]
     });
 
     return res.status(200).json({

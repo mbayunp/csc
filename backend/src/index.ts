@@ -5,6 +5,7 @@ import { sequelize } from './config/database';
 import authRoutes from './routes/authRoutes';
 import bookingRoutes from './routes/bookingRoutes';
 import reportRoutes from './routes/reportRoutes';
+import courtRoutes from './routes/courtRoutes';
 import { errorHandler } from './middlewares/errorHandler';
 
 dotenv.config();
@@ -20,6 +21,7 @@ app.use(express.json());
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/bookings', bookingRoutes);
 app.use('/api/v1/reports', reportRoutes);
+app.use('/api/v1/courts', courtRoutes);
 
 // Global Error Handler (Must be mounted last)
 app.use(errorHandler);

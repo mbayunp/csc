@@ -78,7 +78,7 @@ export const createBooking = async (req: Request, res: Response) => {
     if (error.message === 'OVERLAPPING_BOOKING') {
       return res.status(409).json({ status: 'error', message: 'The requested time slot is no longer available.' });
     }
-    
+
     console.error('Booking Creation Error:', error);
     return res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
@@ -107,11 +107,11 @@ export const getAvailability = async (req: Request, res: Response) => {
     const availability = slots.map(slotTime => {
       // Logic: A slot is booked if it falls exactly or partially within an existing booking range
       const slotHour = parseInt(slotTime.split(':')[0], 10);
-      
+
       const isBooked = bookings.some(booking => {
         const startHour = parseInt(booking.start_time.split(':')[0], 10);
         const endHour = parseInt(booking.end_time.split(':')[0], 10);
-        
+
         // Slot is within [start_time, end_time)
         return slotHour >= startHour && slotHour < endHour;
       });
@@ -145,12 +145,8 @@ export const approveBooking = async (req: Request, res: Response) => {
       return res.status(400).json({ status: 'error', message: `Booking cannot be approved because it is currently ${booking.status}` });
     }
 
-    // Assign mock UUID for approved_by (simulate req.user.id)
-    const dummyAdminId = '00000000-0000-0000-0000-000000000000';
-
     booking.status = 'approved';
     booking.approved_at = new Date();
-    booking.approved_by = dummyAdminId;
 
     await booking.save();
 
@@ -188,6 +184,49 @@ export const rejectBooking = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Reject Booking Error:', error);
+    return res.status(500).json({ status: 'error', message: 'Internal server error' });
+  }
+};
+
+export const getAllBookings = async (req: Request, res: Response) => {
+  try {
+    const bookings = await Booking.findAll({
+      include: [
+        {
+          model: Court,
+          attributes: ['name', 'type']
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      data: bookings
+    });
+  } catch (error) {
+    console.error('Get All Bookings Error:', error);
+    return res.status(500).json({ status: 'error', message: 'Internal server error' });
+  }
+};
+
+export const deleteBooking = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findByPk(id as string);
+    if (!booking) {
+      return res.status(404).json({ status: 'error', message: 'Booking not found' });
+    }
+
+    await booking.destroy();
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Booking deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete Booking Error:', error);
     return res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
 };

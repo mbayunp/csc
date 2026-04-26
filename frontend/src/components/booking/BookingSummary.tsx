@@ -46,7 +46,7 @@ export const BookingSummary: React.FC<BookingSummaryProps> = ({
   return (
     <div className="bg-gradient-to-b from-gray-900 to-gray-800 rounded-[2rem] shadow-2xl border border-gray-700/50 p-6 md:p-8 sticky top-28 text-white transition-all">
       <h3 className="text-xl font-bold mb-6 border-b border-gray-700/50 pb-4 text-gray-100">Ringkasan Booking</h3>
-      
+
       <div className="space-y-4 mb-8">
         <div className="flex justify-between items-start">
           <span className="text-gray-400">Lapangan</span>
@@ -82,19 +82,19 @@ export const BookingSummary: React.FC<BookingSummaryProps> = ({
 
       {/* Form Input CS / Tamu */}
       <div className="bg-gray-800/80 p-5 rounded-2xl mb-8 space-y-4 border border-gray-700/50 shadow-inner">
-        <Input 
-          type="text" 
-          placeholder="Nama Pemesan" 
+        <Input
+          type="text"
+          placeholder="Nama Pemesan"
           value={customerName}
           onChange={e => setCustomerName(e.target.value)}
-          className="bg-gray-900/50 text-white border-gray-600/50 focus:border-green-500 text-sm placeholder:text-gray-500"
+          className="bg-gray-900/50 text-black border-gray-600/50 focus:border-green-500 text-sm placeholder:text-gray-500"
         />
-        <Input 
-          type="tel" 
-          placeholder="No. WhatsApp" 
+        <Input
+          type="tel"
+          placeholder="No. WhatsApp"
           value={customerPhone}
           onChange={e => setCustomerPhone(e.target.value)}
-          className="bg-gray-900/50 text-white border-gray-600/50 focus:border-green-500 text-sm placeholder:text-gray-500"
+          className="bg-gray-900/50 text-black border-gray-600/50 focus:border-green-500 text-sm placeholder:text-gray-500"
         />
       </div>
 
@@ -107,7 +107,7 @@ export const BookingSummary: React.FC<BookingSummaryProps> = ({
         </div>
       </div>
 
-      <Button 
+      <Button
         onClick={onSubmit}
         disabled={!isValid || isSubmitting}
         isLoading={isSubmitting}

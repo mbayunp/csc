@@ -1,170 +1,212 @@
 import React, { useState, useEffect } from 'react';
-import { AdminLayout } from '../../components/layout/AdminLayout';
-import { Card } from '../../components/ui/Card';
-import { SummaryCard } from '../../components/dashboard/SummaryCard';
-import { Wallet, Trophy, BarChart3, TrendingUp } from 'lucide-react';
-// Assuming we are using a simple UI visualization since recharts isn't explicitly installed yet, 
-// but we will build out the layout perfectly.
+import { Calendar, DollarSign, Activity, Users } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000/api/v1';
 
-export const Reports: React.FC = () => {
-  const [dailyData, setDailyData] = useState<any[]>([]);
-  const [courtData, setCourtData] = useState<any[]>([]);
+const Reports = () => {
+  const [dailyRevenue, setDailyRevenue] = useState<any[]>([]);
+  const [revenueByCourt, setRevenueByCourt] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Helper fungsi untuk format Rupiah presisi (Rp. xxx.xxx,00)
+  const formatRupiah = (number: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 2,
+    }).format(number);
+  };
+
+  // Helper fungsi untuk format singkat di sumbu Y grafik (agar tidak terlalu penuh)
+  const formatRupiahShort = (number: number) => {
+    if (number >= 1000000) {
+      return `Rp ${(number / 1000000).toFixed(1)}jt`;
+    }
+    return `Rp ${number.toLocaleString('id-ID')}`;
+  };
+
   useEffect(() => {
+    const fetchReports = async () => {
+      setIsLoading(true);
+      try {
+        const token = localStorage.getItem('csc_token');
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        };
+
+        const [dailyRes, courtRes] = await Promise.all([
+          fetch(`${API_URL}/reports/daily`, { headers }),
+          fetch(`${API_URL}/reports/by-court`, { headers })
+        ]);
+
+        const dailyData = await dailyRes.json();
+        const courtData = await courtRes.json();
+
+        if (dailyData.status === 'success') {
+          setDailyRevenue(dailyData.data.reverse());
+        }
+        if (courtData.status === 'success') {
+          setRevenueByCourt(courtData.data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch reports', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     fetchReports();
   }, []);
 
-  const fetchReports = async () => {
-    setIsLoading(true);
-    try {
-      // Mocking fetch since we don't have real data yet but need to structure the UI
-      // In production this calls GET /reports/daily and GET /reports/by-court
-      setTimeout(() => {
-        setDailyData([
-          { date: '2026-04-15', revenue: 450000 },
-          { date: '2026-04-16', revenue: 800000 },
-          { date: '2026-04-17', revenue: 650000 },
-          { date: '2026-04-18', revenue: 1200000 },
-          { date: '2026-04-19', revenue: 1500000 },
-          { date: '2026-04-20', revenue: 900000 },
-          { date: '2026-04-21', revenue: 1100000 },
-        ]);
-        
-        setCourtData([
-          { court: 'Futsal A (Vinyl)', revenue: 5400000, percentage: 45 },
-          { court: 'Basket Full Court', revenue: 3600000, percentage: 30 },
-          { court: 'Futsal B (Sintetis)', revenue: 1800000, percentage: 15 },
-          { court: 'Badminton Pro', revenue: 1200000, percentage: 10 },
-        ]);
-        setIsLoading(false);
-      }, 1000);
-    } catch (error) {
-      console.error('Failed to fetch reports', error);
-      setIsLoading(false);
-    }
-  };
+  const totalRevenue = dailyRevenue.reduce((sum, item) => sum + Number(item.total_revenue), 0);
 
-  const totalRevenue = dailyData.reduce((acc, curr) => acc + curr.revenue, 0);
-  const bestCourt = courtData.length > 0 ? courtData[0].court : '-';
+  const typeRevenue: Record<string, number> = {};
+  revenueByCourt.forEach(item => {
+    const type = item.Court?.type || 'Lainnya';
+    if (!typeRevenue[type]) typeRevenue[type] = 0;
+    typeRevenue[type] += Number(item.total_revenue);
+  });
 
-  const formatRupiah = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+  const chartData = Object.keys(typeRevenue).map(key => ({
+    name: key,
+    Pendapatan: typeRevenue[key]
+  }));
+
+  const dailyChartData = dailyRevenue.map(item => {
+    const dateObj = new Date(item.date);
+    return {
+      date: `${dateObj.getDate()}/${dateObj.getMonth() + 1}`,
+      Pendapatan: Number(item.total_revenue)
+    };
+  });
 
   return (
-    <AdminLayout>
-      <div className="mb-10 flex flex-col md:flex-row md:justify-between md:items-end gap-6">
+    <div className="p-6 space-y-6 bg-slate-50 min-h-screen">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mb-2">Laporan Keuangan</h2>
-          <p className="text-slate-500 font-medium">Analisis pendapatan dan performa lapangan secara detail.</p>
+          <h1 className="text-2xl font-bold text-slate-800">Laporan Keuangan</h1>
+          <p className="text-slate-500 text-sm mt-1">Ringkasan performa bisnis dan analitik.</p>
         </div>
-        <div className="flex gap-2">
-          <select className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 outline-none focus:border-green-500 transition-all font-semibold shadow-sm">
-            <option>7 Hari Terakhir</option>
-            <option>30 Hari Terakhir</option>
-            <option>Bulan Ini</option>
-            <option>Tahun Ini</option>
-          </select>
-        </div>
+
+        <button className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl transition-all shadow-sm hover:shadow hover:bg-slate-50">
+          <Calendar className="w-5 h-5 text-slate-500" />
+          <span className="font-medium">Semua Waktu</span>
+        </button>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
-        <SummaryCard 
-          title="Total Pendapatan (Periode Ini)" 
-          value={formatRupiah(totalRevenue)} 
-          icon={<Wallet size={26} strokeWidth={2.5} />} 
-          colorTheme="green"
-        />
-        <SummaryCard 
-          title="Lapangan Terlaris" 
-          value={bestCourt} 
-          icon={<Trophy size={26} strokeWidth={2.5} />} 
-          colorTheme="orange"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-        {/* Daily Revenue Chart Placeholder/Visual */}
-        <Card className="flex flex-col shadow-sm border-slate-200">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
-              <TrendingUp size={24} />
-            </div>
-            <h3 className="text-xl font-bold text-slate-900">Tren Pendapatan Harian</h3>
-          </div>
-          
-          <div className="flex-1 bg-slate-50 rounded-2xl border border-slate-100 p-6 flex flex-col justify-end min-h-[300px]">
-            {isLoading ? (
-              <div className="h-full flex items-center justify-center animate-pulse">
-                <BarChart3 className="w-12 h-12 text-slate-300" />
-              </div>
-            ) : (
-              <div className="flex items-end justify-between h-48 gap-2 mt-auto">
-                {dailyData.map((data, idx) => {
-                  const maxRevenue = Math.max(...dailyData.map(d => d.revenue));
-                  const height = `${(data.revenue / maxRevenue) * 100}%`;
-                  return (
-                    <div key={idx} className="flex flex-col items-center flex-1 group">
-                      <div className="w-full relative flex justify-center items-end h-full">
-                        {/* Tooltip */}
-                        <div className="opacity-0 group-hover:opacity-100 absolute -top-10 bg-slate-900 text-white text-xs font-bold py-1.5 px-3 rounded-lg whitespace-nowrap transition-opacity pointer-events-none z-10 shadow-xl">
-                          {formatRupiah(data.revenue)}
-                        </div>
-                        {/* Bar */}
-                        <div 
-                          className="w-full max-w-[40px] bg-indigo-500 rounded-t-md transition-all duration-500 ease-out group-hover:bg-indigo-600"
-                          style={{ height }}
-                        ></div>
-                      </div>
-                      <span className="text-[10px] font-semibold text-slate-400 mt-3 whitespace-nowrap truncate w-full text-center">
-                        {new Date(data.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Revenue by Court */}
-        <Card className="flex flex-col shadow-sm border-slate-200">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
-              <BarChart3 size={24} />
-            </div>
-            <h3 className="text-xl font-bold text-slate-900">Pendapatan per Lapangan</h3>
-          </div>
-
-          <div className="flex-1 space-y-6">
-            {isLoading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className="h-16 bg-slate-100 animate-pulse rounded-xl"></div>
-                ))}
-              </div>
-            ) : (
-              courtData.map((data, idx) => (
-                <div key={idx}>
-                  <div className="flex justify-between items-end mb-2">
-                    <span className="font-bold text-slate-800">{data.court}</span>
-                    <span className="font-black text-slate-900">{formatRupiah(data.revenue)}</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                    <div 
-                      className="bg-blue-500 h-3 rounded-full transition-all duration-1000 ease-out"
-                      style={{ width: `${data.percentage}%` }}
-                    ></div>
-                  </div>
+      {isLoading ? (
+        <div className="flex justify-center items-center min-h-[400px]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Total Pendapatan Card - UPDATED FORMAT */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm transition-all hover:shadow-md hover:-translate-y-1">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                  <DollarSign className="w-6 h-6" />
                 </div>
-              ))
-            )}
+                <div>
+                  <p className="text-sm font-medium text-slate-500">Total Pendapatan</p>
+                  <h3 className="text-xl font-bold text-slate-800 mt-1">
+                    {formatRupiah(totalRevenue)}
+                  </h3>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm transition-all hover:shadow-md hover:-translate-y-1">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-purple-50 text-purple-600 rounded-xl">
+                  <Users className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-500">Total Hari Transaksi</p>
+                  <h3 className="text-2xl font-bold text-slate-800">{dailyRevenue.length}</h3>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm transition-all hover:shadow-md hover:-translate-y-1">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-orange-50 text-orange-600 rounded-xl">
+                  <Activity className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-500">Lapangan Populer</p>
+                  <h3 className="text-lg font-bold text-slate-800 truncate">
+                    {revenueByCourt.sort((a, b) => Number(b.total_revenue) - Number(a.total_revenue))[0]?.Court?.name || '-'}
+                  </h3>
+                </div>
+              </div>
+            </div>
           </div>
-        </Card>
-      </div>
-    </AdminLayout>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* Daily Revenue Chart */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm overflow-hidden">
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-slate-800">Tren Pendapatan Harian</h2>
+                <p className="text-sm text-slate-500">Total pendapatan yang disetujui per hari</p>
+              </div>
+
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyChartData} margin={{ top: 20, right: 30, left: 40, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#64748b', fontSize: 12 }}
+                      tickFormatter={formatRupiahShort}
+                    />
+                    <RechartsTooltip
+                      cursor={{ fill: '#f8fafc' }}
+                      contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      formatter={(value: any) => [formatRupiah(Number(value)), "Pendapatan"]}
+                    />
+                    <Bar dataKey="Pendapatan" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Sport Type Revenue Chart */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm overflow-hidden">
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-slate-800">Pendapatan per Jenis Olahraga</h2>
+                <p className="text-sm text-slate-500">Berdasarkan total pendapatan lapangan</p>
+              </div>
+
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 20, right: 30, left: 40, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#64748b', fontSize: 12 }}
+                      tickFormatter={formatRupiahShort}
+                    />
+                    <RechartsTooltip
+                      cursor={{ fill: '#f8fafc' }}
+                      contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      formatter={(value: any) => [formatRupiah(Number(value)), "Pendapatan"]}
+                    />
+                    <Bar dataKey="Pendapatan" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 };
 

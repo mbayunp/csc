@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 interface User {
@@ -9,55 +9,51 @@ interface User {
 }
 
 interface AuthContextType {
-  token: string | null;
   user: User | null;
-  login: (token: string, user: User) => void;
+  token: string | null;
+  login: (userData: User, token: string) => void;
   logout: () => void;
   isAuthenticated: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [user, setUser] = useState(() => {
-  try {
-    const storedUser = localStorage.getItem('user');
-    return storedUser ? JSON.parse(storedUser) : null;
-  } catch (error) {
-    console.error('Failed to parse user:', error);
-    return null;
-  }
-});
-  const navigate = useNavigate();
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isReady, setIsReady] = useState(false); // Mencegah kedip saat cek localStorage
 
   useEffect(() => {
-    // Listen for the custom event from the axios interceptor
-    const handleUnauthorized = () => {
-      logout();
-    };
-    
-    window.addEventListener('unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('unauthorized', handleUnauthorized);
+    // Cek apakah ada token tersimpan saat web pertama dibuka
+    const storedUser = localStorage.getItem('csc_user');
+    const storedToken = localStorage.getItem('csc_token');
+
+    if (storedUser && storedToken) {
+      setUser(JSON.parse(storedUser));
+      setToken(storedToken);
+    }
+    setIsReady(true);
   }, []);
 
-  const login = (newToken: string, newUser: User) => {
-    setToken(newToken);
-    setUser(newUser);
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
+  const login = (userData: User, authToken: string) => {
+    setUser(userData);
+    setToken(authToken);
+    localStorage.setItem('csc_user', JSON.stringify(userData));
+    localStorage.setItem('csc_token', authToken);
   };
 
   const logout = () => {
-    setToken(null);
     setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
+    setToken(null);
+    localStorage.removeItem('csc_user');
+    localStorage.removeItem('csc_token');
+    window.location.href = '/login'; // Paksa ke login dan bersihkan memori
   };
 
+  if (!isReady) return null; // Tunggu pengecekan localStorage selesai
+
   return (
-    <AuthContext.Provider value={{ token, user, login, logout, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!token }}>
       {children}
     </AuthContext.Provider>
   );
@@ -65,6 +61,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };

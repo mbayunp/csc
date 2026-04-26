@@ -3,21 +3,22 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
 interface ProtectedRouteProps {
-  allowedRoles?: ('admin' | 'cs' | 'user')[];
+  allowedRoles?: Array<'admin' | 'cs' | 'user'>;
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) => {
   const { isAuthenticated, user } = useAuth();
 
-  if (!isAuthenticated) {
+  // 1. Jika belum login, tendang ke halaman login
+  if (!isAuthenticated || !user) {
     return <Navigate to="/login" replace />;
   }
 
-  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-    // If user doesn't have required role, maybe redirect to their respective dashboard
-    // or just show a 403 or redirect to home
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    console.log("Role tidak diizinkan:", user.role); // Coba tambah log ini untuk debug
     return <Navigate to="/" replace />;
   }
 
+  // 3. Jika aman, persilakan masuk ke halaman yang dituju
   return <Outlet />;
 };

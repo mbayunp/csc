@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { 
-  Calendar, Clock, ShieldCheck, AlertCircle, ChevronRight, Activity, Grid
+import {
+  Calendar, Clock, ShieldCheck, AlertCircle, Activity, Grid
 } from 'lucide-react';
 import { TimeSlot } from '../../components/booking/TimeSlot';
 import { BookingSummary } from '../../components/booking/BookingSummary';
@@ -18,69 +18,59 @@ interface TimeSlotData {
   isBooked: boolean;
 }
 
-const sportsData = [
-  {
-    sport: 'Futsal',
-    zones: [
-      { name: 'Zona A', courts: [{ id: 1, name: 'Futsal A (Vinyl)', price_per_hour: 120000 }] },
-      { name: 'Zona B', courts: [{ id: 2, name: 'Futsal B (Sintetis)', price_per_hour: 100000 }] }
-    ]
-  },
-  {
-    sport: 'Badminton',
-    zones: [
-      { name: 'Zona A', courts: [{ id: 3, name: 'A1', price_per_hour: 40000 }, { id: 4, name: 'A2', price_per_hour: 40000 }] },
-      { name: 'Zona B', courts: [{ id: 5, name: 'B1', price_per_hour: 40000 }, { id: 6, name: 'B2', price_per_hour: 40000 }, { id: 7, name: 'B3', price_per_hour: 40000 }] }
-    ]
-  },
-  {
-    sport: 'Basket',
-    zones: [
-      { name: 'Tanpa Zona', courts: [{ id: 8, name: 'Basket Full Court', price_per_hour: 150000 }] }
-    ]
-  }
-];
-
 const Booking: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   // Hierarchy State Machine
+  const [courts, setCourts] = useState<any[]>([]);
   const [selectedSport, setSelectedSport] = useState<string | null>(null);
-  const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
-  
+
   // Input CS Manual
   const [customerName, setCustomerName] = useState<string>('');
   const [customerPhone, setCustomerPhone] = useState<string>('');
-  
+
   const [timeSlots, setTimeSlots] = useState<TimeSlotData[]>([]);
   const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(false);
   const [bookingStatus, setBookingStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [bookingResult, setBookingResult] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
   const refreshTrigger = useMemo(() => Date.now(), [bookingStatus]);
 
+  // Derived Sports Data from API
+  const sportsData: { sport: string, courts: any[] }[] = useMemo(() => {
+    const grouped = courts.reduce((acc, court) => {
+      const sportName = court.type.charAt(0).toUpperCase() + court.type.slice(1);
+      if (!acc[sportName]) acc[sportName] = [];
+      acc[sportName].push(court);
+      return acc;
+    }, {} as Record<string, any[]>);
+
+    return Object.keys(grouped).map(sport => ({
+      sport,
+      courts: grouped[sport]
+    }));
+  }, [courts]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/courts/`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success') {
+          setCourts(data.data.filter((c: any) => c.is_active));
+        }
+      })
+      .catch(err => console.error('Failed to fetch courts', err));
+  }, []);
+
   // Handle Sport Selection
   const handleSportSelect = (sport: string) => {
     setSelectedSport(sport);
-    setSelectedZone(null);
-    setSelectedCourt(null);
-    setSelectedSlots([]);
-    
-    // Auto-select zone if it's Basket or only 1 zone available
-    const sportObj = sportsData.find(s => s.sport === sport);
-    if (sportObj && sportObj.zones.length === 1 && sportObj.zones[0].name === 'Tanpa Zona') {
-      setSelectedZone('Tanpa Zona');
-    }
-  };
-
-  // Handle Zone Selection
-  const handleZoneSelect = (zone: string) => {
-    setSelectedZone(zone);
     setSelectedCourt(null);
     setSelectedSlots([]);
   };
@@ -96,29 +86,24 @@ const Booking: React.FC = () => {
     window.scrollTo(0, 0);
     const courtIdParam = searchParams.get('court_id');
     const dateParam = searchParams.get('date');
-    if (courtIdParam && !isNaN(Number(courtIdParam))) {
+    if (courtIdParam && !isNaN(Number(courtIdParam)) && courts.length > 0) {
       const courtId = Number(courtIdParam);
-      sportsData.forEach(s => {
-        s.zones.forEach(z => {
-          const c = z.courts.find(c => c.id === courtId);
-          if (c) {
-            setSelectedSport(s.sport);
-            setSelectedZone(z.name);
-            setSelectedCourt(courtId);
-          }
-        });
-      });
+      const c = courts.find(c => c.id === courtId);
+      if (c) {
+        setSelectedSport(c.type.charAt(0).toUpperCase() + c.type.slice(1));
+        setSelectedCourt(courtId);
+      }
     }
     if (dateParam) {
       setSelectedDate(dateParam);
     }
-  }, [searchParams]);
+  }, [searchParams, courts]);
 
   // Fetch Availability
   useEffect(() => {
     const fetchAvailability = async () => {
       if (!selectedCourt || !selectedDate) return;
-      
+
       setSelectedSlots([]);
       setIsLoadingSlots(true);
       setErrorMessage('');
@@ -126,7 +111,7 @@ const Booking: React.FC = () => {
       try {
         const response = await fetch(`${API_URL}/bookings/availability?court_id=${selectedCourt}&date=${selectedDate}`);
         const result = await response.json();
-        
+
         if (response.ok) {
           setTimeSlots(result.data);
         } else {
@@ -145,22 +130,17 @@ const Booking: React.FC = () => {
 
   // Kalkulasi Harga & Payload
   const currentCourtParams = useMemo(() => {
-    if (!selectedSport || !selectedZone || !selectedCourt) return null;
-    const sport = sportsData.find(s => s.sport === selectedSport);
-    if (!sport) return null;
-    const zone = sport.zones.find(z => z.name === selectedZone);
-    if (!zone) return null;
-    return zone.courts.find(c => c.id === selectedCourt) || null;
-  }, [selectedSport, selectedZone, selectedCourt]);
+    return courts.find(c => c.id === selectedCourt) || null;
+  }, [courts, selectedCourt]);
 
   const duration = selectedSlots.length;
   const totalPrice = currentCourtParams ? currentCourtParams.price_per_hour * duration : 0;
-  
+
   // Sort selected slots chronologically to get start time
   const sortedSelectedSlots = useMemo(() => {
     return [...selectedSlots].sort((a, b) => parseInt(a.split(':')[0]) - parseInt(b.split(':')[0]));
   }, [selectedSlots]);
-  
+
   const startTime = sortedSelectedSlots.length > 0 ? sortedSelectedSlots[0] : null;
 
   const formatRupiah = (price: number) => {
@@ -186,7 +166,7 @@ const Booking: React.FC = () => {
 
     const clickedHour = parseInt(time.split(':')[0], 10);
     const selectedHours = selectedSlots.map(s => parseInt(s.split(':')[0], 10)).sort((a, b) => a - b);
-    
+
     // If clicking an already selected slot
     if (selectedSlots.includes(time)) {
       if (clickedHour === selectedHours[0] || clickedHour === selectedHours[selectedHours.length - 1]) {
@@ -213,12 +193,12 @@ const Booking: React.FC = () => {
   const handleBookingSubmit = async () => {
     if (!selectedCourt || !selectedDate || selectedSlots.length === 0) return;
     if (bookingStatus === 'submitting') return; // Double click guard
-    
+
     setBookingStatus('submitting');
     setErrorMessage('');
-    
+
     try {
-      const response = await fetch(`${API_URL}/bookings`, {
+      const response = await fetch(`${API_URL}/bookings/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -234,15 +214,16 @@ const Booking: React.FC = () => {
       const result = await response.json();
 
       if (response.ok) {
+        setBookingResult(result.data);
         setBookingStatus('success');
         toast('Booking berhasil diamankan!', 'success');
         window.scrollTo(0, 0);
       } else {
         if (response.status === 409) {
-           toast('Slot sudah terisi, silakan pilih jam lain', 'warning');
-           setSelectedSlots([]);
+          toast('Slot sudah terisi, silakan pilih jam lain', 'warning');
+          setSelectedSlots([]);
         } else {
-           toast(result.message || 'Gagal melakukan booking', 'error');
+          toast(result.message || 'Gagal melakukan booking', 'error');
         }
         throw new Error(result.message || 'Gagal melakukan booking');
       }
@@ -250,7 +231,7 @@ const Booking: React.FC = () => {
       setBookingStatus('error');
       setErrorMessage(error.message);
       if (error.message.includes('available') || error.message.includes('terisi')) {
-         setSelectedSlots([]);
+        setSelectedSlots([]);
       }
     }
   };
@@ -272,16 +253,17 @@ const Booking: React.FC = () => {
           </div>
           <h2 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">Booking Berhasil!</h2>
           <p className="text-slate-600 mb-8 leading-relaxed font-medium">
-            Permintaan booking Anda untuk <strong className="text-slate-900">{currentCourtParams?.name}</strong> pada <strong className="text-slate-900">{selectedDate}</strong> jam <strong className="text-slate-900">{startTime}</strong> selama <strong className="text-slate-900">{duration} Jam</strong> telah diamankan.
+            Permintaan booking Anda untuk <strong className="text-slate-900">{currentCourtParams?.name}</strong> pada <strong className="text-slate-900">{bookingResult?.date || selectedDate}</strong> jam <strong className="text-slate-900">{bookingResult?.start_time?.substring(0,5) || startTime}</strong> selama <strong className="text-slate-900">{bookingResult?.duration || duration} Jam</strong> telah diamankan.
           </p>
           <div className="bg-slate-50 p-5 rounded-2xl mb-8 border border-slate-200/60 text-left">
             <p className="text-sm font-semibold text-slate-500 mb-1 uppercase tracking-wide">Total Pembayaran</p>
-            <p className="text-3xl font-black text-slate-900 tracking-tight">{formatRupiah(totalPrice)}</p>
+            <p className="text-3xl font-black text-slate-900 tracking-tight">{formatRupiah(Number(bookingResult?.total_price) || totalPrice)}</p>
           </div>
           <div className="space-y-3">
-            <Button 
+            <Button
               onClick={() => {
                 setBookingStatus('idle');
+                setBookingResult(null);
                 setSelectedSlots([]);
               }}
               variant="secondary"
@@ -289,7 +271,7 @@ const Booking: React.FC = () => {
             >
               Booking Lagi
             </Button>
-            <Button 
+            <Button
               onClick={() => navigate('/lapangan')}
               variant="outline"
               fullWidth
@@ -336,7 +318,7 @@ const Booking: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 font-sans text-slate-900 pb-24">
-      
+
       {/* Hero Section */}
       <section className="bg-slate-900 text-white pt-36 pb-16 px-4 relative overflow-hidden">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-full bg-gradient-to-b from-green-500/20 to-transparent blur-3xl rounded-full"></div>
@@ -347,7 +329,7 @@ const Booking: React.FC = () => {
       </section>
 
       <div className="max-w-7xl mx-auto px-4 -mt-8 relative z-20 w-full">
-        
+
         {errorMessage && bookingStatus === 'error' && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-5 py-4 rounded-2xl mb-8 flex items-center gap-3 shadow-sm animate-in fade-in slide-in-from-top-4">
             <AlertCircle size={24} className="text-red-500" />
@@ -368,9 +350,9 @@ const Booking: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-          
+
           <div className="xl:col-span-2 space-y-8">
-            
+
             {/* 1. Sport Selection */}
             <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md">
               <div className="flex items-center gap-3 mb-6">
@@ -386,8 +368,8 @@ const Booking: React.FC = () => {
                     onClick={() => handleSportSelect(sport.sport)}
                     className={`
                       group text-center py-4 px-5 rounded-2xl border-2 transition-all duration-200 ease-out
-                      ${selectedSport === sport.sport 
-                        ? 'border-blue-500 bg-blue-50 shadow-md ring-4 ring-blue-500/10 scale-[1.02] z-10 relative' 
+                      ${selectedSport === sport.sport
+                        ? 'border-blue-500 bg-blue-50 shadow-md ring-4 ring-blue-500/10 scale-[1.02] z-10 relative'
                         : 'border-slate-200 hover:border-blue-400 hover:bg-slate-50 hover:shadow-sm'}
                     `}
                   >
@@ -397,57 +379,36 @@ const Booking: React.FC = () => {
               </div>
             </Card>
 
-            {/* 2. Zone & Court Selection */}
+            {/* 2. Court Selection */}
             {selectedSport && (
               <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md animate-in slide-in-from-bottom-4">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="p-2.5 bg-green-50 text-green-600 rounded-xl">
                     <Grid size={24} />
                   </div>
-                  <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Zona & Lapangan</h2>
+                  <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Lapangan</h2>
                 </div>
 
-                {/* Zone Tabs (Hidden if Tanpa Zona) */}
-                {currentSportObj && !(currentSportObj.zones.length === 1 && currentSportObj.zones[0].name === 'Tanpa Zona') && (
-                  <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200/60 shadow-inner mb-6">
-                    {currentSportObj.zones.map((zone) => (
-                      <button
-                        key={zone.name}
-                        onClick={() => handleZoneSelect(zone.name)}
-                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-200 ease-out ${
-                          selectedZone === zone.name 
-                            ? 'bg-white shadow-sm border-slate-200 text-green-600 scale-[1.02]' 
-                            : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'
-                        }`}
-                      >
-                        {zone.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
                 {/* Court Selection */}
-                {selectedZone && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
-                    {currentSportObj?.zones.find(z => z.name === selectedZone)?.courts.map((court) => (
-                      <button
-                        key={court.id}
-                        onClick={() => handleCourtSelect(court.id)}
-                        className={`
-                          group text-left p-5 rounded-2xl border-2 transition-all duration-200 ease-out
-                          ${selectedCourt === court.id 
-                            ? 'border-green-500 bg-green-50 shadow-md ring-4 ring-green-500/10 scale-[1.02] z-10 relative' 
-                            : 'border-slate-200 hover:border-green-400 hover:bg-slate-50 hover:shadow-sm'}
-                        `}
-                      >
-                        <div className="flex justify-between items-start mb-3">
-                          <span className="font-bold text-slate-900 text-lg group-hover:text-green-700 transition-colors">{court.name}</span>
-                        </div>
-                        <p className={`font-extrabold text-lg ${selectedCourt === court.id ? 'text-green-700' : 'text-green-600'}`}>{formatRupiah(court.price_per_hour)} <span className="text-sm font-medium opacity-70">/ jam</span></p>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
+                  {currentSportObj?.courts.map((court: any) => (
+                    <button
+                      key={court.id}
+                      onClick={() => handleCourtSelect(court.id)}
+                      className={`
+                        group text-left p-5 rounded-2xl border-2 transition-all duration-200 ease-out
+                        ${selectedCourt === court.id
+                          ? 'border-green-500 bg-green-50 shadow-md ring-4 ring-green-500/10 scale-[1.02] z-10 relative'
+                          : 'border-slate-200 hover:border-green-400 hover:bg-slate-50 hover:shadow-sm'}
+                      `}
+                    >
+                      <div className="flex justify-between items-start mb-3">
+                        <span className="font-bold text-slate-900 text-lg group-hover:text-green-700 transition-colors">{court.name}</span>
+                      </div>
+                      <p className={`font-extrabold text-lg ${selectedCourt === court.id ? 'text-green-700' : 'text-green-600'}`}>{formatRupiah(court.price_per_hour)} <span className="text-sm font-medium opacity-70">/ jam</span></p>
+                    </button>
+                  ))}
+                </div>
               </Card>
             )}
 
@@ -461,8 +422,8 @@ const Booking: React.FC = () => {
                   <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Tanggal</h2>
                 </div>
                 <div>
-                  <Input 
-                    type="date" 
+                  <Input
+                    type="date"
                     value={selectedDate}
                     min={new Date().toISOString().split('T')[0]}
                     onChange={(e) => setSelectedDate(e.target.value)}
@@ -482,7 +443,7 @@ const Booking: React.FC = () => {
                   <h2 className="text-xl font-bold tracking-tight text-slate-900">Pilih Jam Mulai (Bisa pilih &gt; 1 slot)</h2>
                 </div>
               </div>
-              
+
               {isLoadingSlots ? (
                 <div className="absolute inset-0 bg-white/95 z-10 rounded-3xl p-6 md:p-8 animate-in fade-in">
                   <div className="flex gap-4 mb-8 mt-4">
